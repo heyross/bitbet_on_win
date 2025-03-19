@@ -134,7 +134,7 @@ set "INSTALL_ERROR=0"
         call :log_and_show "Downloading Git installer" "DOWNLOAD"
         
         :: Download Git installer using PowerShell
-        powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.42.0.windows.2/Git-2.42.0.2-64-bit.exe' -OutFile '%TEMP_DIR:\=/%/git_installer.exe' }"
+        powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.42.0.windows.2/Git-2.42.0.2-64-bit.exe' -OutFile '%TEMP_DIR%\git_installer.exe' }"
         
         if not exist "%TEMP_DIR%\git_installer.exe" (
             call :log_and_show "Failed to download Git installer" "ERROR"
@@ -162,16 +162,18 @@ set "INSTALL_ERROR=0"
 
 :check_conda
     call :log_and_show "Checking for Conda installation" "CHECK"
+    
+    :: Check for conda installation
     conda --version >nul 2>&1
     if !errorlevel! neq 0 (
         call :log_and_show "Conda not found, installing Miniconda" "INSTALL"
         
-        :: Download Miniconda installer
+        :: Create temp directory if it doesn't exist
         if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
         call :log_and_show "Downloading Miniconda installer" "DOWNLOAD"
         
         :: Download Miniconda installer using PowerShell
-        powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe' -OutFile '%TEMP_DIR:\=/%/miniconda_installer.exe' }"
+        powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe' -OutFile '%TEMP_DIR%\miniconda_installer.exe' }"
         
         if not exist "%TEMP_DIR%\miniconda_installer.exe" (
             call :log_and_show "Failed to download Miniconda installer" "ERROR"
@@ -179,25 +181,32 @@ set "INSTALL_ERROR=0"
             exit /b 1
         )
         
-        :: Install Miniconda silently with a specific prefix to avoid conflicts
-        call :log_and_show "Installing Miniconda (this will take 2-3 minutes)" "INSTALL"
-        echo NOTE: If you see a message about directory not being empty, select 'yes' to install anyway
-        "%TEMP_DIR%\miniconda_installer.exe" /S /RegisterPython=1 /AddToPath=1 /D=%USERPROFILE%\miniconda3_bitnet
+        :: Install Miniconda
+        call :log_and_show "Installing Miniconda (this may take a few minutes)" "INSTALL"
+        call :log_and_show "Please wait - progress is not shown during installation" "INFO"
+        echo.
+        echo Installing Miniconda to %USERPROFILE%\miniconda3_bitnet
+        echo (This is normal and may take several minutes with no visible progress)
+        echo.
         
-        :: Verify Conda installation
-        timeout /t 5 >nul
-        setlocal
-        set "PATH=%PATH%;%USERPROFILE%\miniconda3_bitnet;%USERPROFILE%\miniconda3_bitnet\Scripts"
-        conda --version >nul 2>&1
-        if !errorlevel! neq 0 (
-            endlocal
-            call :log_and_show "Miniconda installation failed" "ERROR"
+        :: Run Miniconda installer with visible progress
+        start /wait "" "%TEMP_DIR%\miniconda_installer.exe" /S /InstallationType=JustMe /RegisterPython=0 /AddToPath=0 /D=%USERPROFILE%\miniconda3_bitnet
+        
+        if not exist "%USERPROFILE%\miniconda3_bitnet" (
+            call :log_and_show "Failed to install Miniconda" "ERROR"
             set "PREREQ_ERROR=1"
             exit /b 1
-        ) else (
-            endlocal
-            call :log_and_show "Miniconda installed successfully" "SUCCESS"
         )
+        
+        call :log_and_show "Miniconda installed successfully" "SUCCESS"
+        
+        :: Add Miniconda to path for this session
+        set "PATH=%PATH%;%USERPROFILE%\miniconda3_bitnet;%USERPROFILE%\miniconda3_bitnet\Scripts"
+        call :log_and_show "Added Miniconda to PATH for this session" "INFO"
+        
+        :: Initialize conda for future sessions
+        call :log_and_show "Initializing conda for future sessions" "INFO"
+        call "%USERPROFILE%\miniconda3_bitnet\Scripts\activate.bat"
     ) else (
         call :log_and_show "Conda is already installed" "SUCCESS"
     )
@@ -218,7 +227,7 @@ set "INSTALL_ERROR=0"
         
         :: Download VS installer using PowerShell - with better error handling
         echo Executing PowerShell to download Visual Studio installer...
-        powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vs_community.exe' -OutFile '%TEMP_DIR:\=/%/vs_community.exe'; if($?) { Write-Host 'Download successful' } } catch { Write-Host 'Error: ' + $_.Exception.Message; exit 1 } }"
+        powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vs_community.exe' -OutFile '%TEMP_DIR%\vs_community.exe'; if($?) { Write-Host 'Download successful' } } catch { Write-Host 'Error: ' + $_.Exception.Message; exit 1 } }"
         
         if !errorlevel! neq 0 (
             call :log_and_show "Failed to download Visual Studio installer. Error in PowerShell command." "ERROR"
