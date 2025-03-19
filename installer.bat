@@ -38,12 +38,32 @@ set "INSTALL_ERROR=0"
         call :log "Created temp directory: %TEMP_DIR%"
     )
     
-    :: Start the installation process
-    call :install_prerequisites
+    :: Explicitly call the prerequisite installation functions in order
+    call :check_git
     if !errorlevel! neq 0 (
-        call :log "ERROR: Prerequisites installation failed with code !errorlevel!"
+        call :log "ERROR: Git installation failed"
         echo ===================================================================
-        echo Failed to install prerequisites. See log for details: "%LOG_FILE%"
+        echo Failed to install Git. See log for details: "%LOG_FILE%"
+        echo ===================================================================
+        pause
+        exit /b 1
+    )
+    
+    call :check_conda
+    if !errorlevel! neq 0 (
+        call :log "ERROR: Conda installation failed"
+        echo ===================================================================
+        echo Failed to install Conda. See log for details: "%LOG_FILE%"
+        echo ===================================================================
+        pause
+        exit /b 1
+    )
+    
+    call :check_vs
+    if !errorlevel! neq 0 (
+        call :log "ERROR: Visual Studio installation failed"
+        echo ===================================================================
+        echo Failed to install Visual Studio. See log for details: "%LOG_FILE%"
         echo ===================================================================
         pause
         exit /b 1
@@ -87,16 +107,40 @@ set "INSTALL_ERROR=0"
 :: ===================================================================
 
 :log
-    echo [%date% %time%] %~1 >> "%LOG_FILE%"
+    echo %date% %time% - %~1 >> "%LOG_FILE%"
     exit /b 0
 
 :log_and_show
     set "message=%~1"
-    set "level=%~2"
-    if "%level%"=="" set "level=INFO"
+    set "type=%~2"
+    set "timestamp=[%time:~0,8%]"
     
-    call :log "[%level%] %message%"
-    echo [%time%] [%level%] %message%
+    :: Format output based on message type
+    if "%type%"=="ERROR" (
+        echo %timestamp% [ERROR] %message%
+        echo %date% %time% - ERROR: %message% >> "%LOG_FILE%"
+    ) else if "%type%"=="WARNING" (
+        echo %timestamp% [WARNING] %message%
+        echo %date% %time% - WARNING: %message% >> "%LOG_FILE%"
+    ) else if "%type%"=="SUCCESS" (
+        echo %timestamp% [SUCCESS] %message%
+        echo %date% %time% - SUCCESS: %message% >> "%LOG_FILE%"
+    ) else if "%type%"=="CHECK" (
+        echo %timestamp% [CHECK] %message%
+        echo %date% %time% - CHECK: %message% >> "%LOG_FILE%"
+    ) else if "%type%"=="INSTALL" (
+        echo %timestamp% [INSTALL] %message%
+        echo %date% %time% - INSTALL: %message% >> "%LOG_FILE%"
+    ) else if "%type%"=="DOWNLOAD" (
+        echo %timestamp% [DOWNLOAD] %message%
+        echo %date% %time% - DOWNLOAD: %message% >> "%LOG_FILE%"
+    ) else if "%type%"=="COMPLETE" (
+        echo %timestamp% [COMPLETE] %message%
+        echo %date% %time% - COMPLETE: %message% >> "%LOG_FILE%"
+    ) else (
+        echo %timestamp% [INFO] %message%
+        echo %date% %time% - INFO: %message% >> "%LOG_FILE%"
+    )
     exit /b 0
 
 :display_progress_bar
@@ -163,52 +207,89 @@ set "INSTALL_ERROR=0"
 :check_conda
     call :log_and_show "Checking for Conda installation" "CHECK"
     
-    :: Check for conda installation
-    conda --version >nul 2>&1
-    if !errorlevel! neq 0 (
-        call :log_and_show "Conda not found, installing Miniconda" "INSTALL"
-        
-        :: Create temp directory if it doesn't exist
-        if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
-        call :log_and_show "Downloading Miniconda installer" "DOWNLOAD"
-        
-        :: Download Miniconda installer using PowerShell
-        powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe' -OutFile '%TEMP_DIR%\miniconda_installer.exe' }"
-        
-        if not exist "%TEMP_DIR%\miniconda_installer.exe" (
-            call :log_and_show "Failed to download Miniconda installer" "ERROR"
-            set "PREREQ_ERROR=1"
-            exit /b 1
+    :: Better check for conda installation - use timeout to avoid hanging
+    where conda >nul 2>&1
+    if %errorlevel% neq 0 (
+        :: Try checking specific locations
+        if exist "%USERPROFILE%\miniconda3_bitnet\Scripts\conda.exe" (
+            call :log_and_show "Found Conda at %USERPROFILE%\miniconda3_bitnet\Scripts\conda.exe" "SUCCESS"
+            :: Add to path for this session
+            set "PATH=%PATH%;%USERPROFILE%\miniconda3_bitnet;%USERPROFILE%\miniconda3_bitnet\Scripts"
+            call :log_and_show "Added Miniconda to PATH for this session" "INFO"
+            exit /b 0
+        ) else if exist "%USERPROFILE%\Miniconda3\Scripts\conda.exe" (
+            call :log_and_show "Found Conda at %USERPROFILE%\Miniconda3\Scripts\conda.exe" "SUCCESS"
+            :: Add to path for this session
+            set "PATH=%PATH%;%USERPROFILE%\Miniconda3;%USERPROFILE%\Miniconda3\Scripts"
+            call :log_and_show "Added Miniconda to PATH for this session" "INFO"
+            exit /b 0
+        ) else if exist "%USERPROFILE%\Anaconda3\Scripts\conda.exe" (
+            call :log_and_show "Found Conda at %USERPROFILE%\Anaconda3\Scripts\conda.exe" "SUCCESS"
+            :: Add to path for this session
+            set "PATH=%PATH%;%USERPROFILE%\Anaconda3;%USERPROFILE%\Anaconda3\Scripts"
+            call :log_and_show "Added Miniconda to PATH for this session" "INFO"
+            exit /b 0
+        ) else (
+            call :log_and_show "Conda not found, installing Miniconda" "INSTALL"
+            
+            :: Create temp directory if it doesn't exist
+            if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
+            call :log_and_show "Downloading Miniconda installer" "DOWNLOAD"
+            
+            :: Download Miniconda installer using PowerShell
+            powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe' -OutFile '%TEMP_DIR%\miniconda_installer.exe' }"
+            
+            if not exist "%TEMP_DIR%\miniconda_installer.exe" (
+                call :log_and_show "Failed to download Miniconda installer" "ERROR"
+                set "PREREQ_ERROR=1"
+                exit /b 1
+            )
+            
+            :: Install Miniconda
+            call :log_and_show "Installing Miniconda (this may take a few minutes)" "INSTALL"
+            call :log_and_show "Please wait - progress is not shown during installation" "INFO"
+            echo.
+            echo Installing Miniconda to %USERPROFILE%\miniconda3_bitnet
+            echo (This is normal and may take several minutes with no visible progress)
+            echo.
+            
+            :: Run Miniconda installer with visible progress
+            start /wait "" "%TEMP_DIR%\miniconda_installer.exe" /S /InstallationType=JustMe /RegisterPython=0 /AddToPath=0 /D=%USERPROFILE%\miniconda3_bitnet
+            
+            if not exist "%USERPROFILE%\miniconda3_bitnet" (
+                call :log_and_show "Failed to install Miniconda" "ERROR"
+                set "PREREQ_ERROR=1"
+                exit /b 1
+            )
+            
+            call :log_and_show "Miniconda installed successfully" "SUCCESS"
+            
+            :: Initialize conda for future sessions
+            call :log_and_show "Initializing conda for future sessions" "INFO"
+            
+            :: Initialize conda properly using init and then activate
+            echo Running conda init cmd.exe to properly initialize conda...
+            "%USERPROFILE%\miniconda3_bitnet\Scripts\conda.exe" init cmd.exe >nul 2>&1
+            
+            :: Create and activate the environment using the full path to conda
+            echo Creating conda environment bitnet-cpp...
+            "%USERPROFILE%\miniconda3_bitnet\Scripts\conda.exe" create -n bitnet-cpp python=3.9 -y
+            
+            if !errorlevel! neq 0 (
+                call :log_and_show "Failed to create conda environment" "ERROR"
+                exit /b 1
+            )
+            
+            :: Add Miniconda to path for this session
+            set "PATH=%PATH%;%USERPROFILE%\miniconda3_bitnet;%USERPROFILE%\miniconda3_bitnet\Scripts"
+            call :log_and_show "Added Miniconda to PATH for this session" "INFO"
+            
+            :: Initialize conda for future sessions
+            call :log_and_show "Initializing conda for future sessions" "INFO"
+            call "%USERPROFILE%\miniconda3_bitnet\Scripts\activate.bat"
         )
-        
-        :: Install Miniconda
-        call :log_and_show "Installing Miniconda (this may take a few minutes)" "INSTALL"
-        call :log_and_show "Please wait - progress is not shown during installation" "INFO"
-        echo.
-        echo Installing Miniconda to %USERPROFILE%\miniconda3_bitnet
-        echo (This is normal and may take several minutes with no visible progress)
-        echo.
-        
-        :: Run Miniconda installer with visible progress
-        start /wait "" "%TEMP_DIR%\miniconda_installer.exe" /S /InstallationType=JustMe /RegisterPython=0 /AddToPath=0 /D=%USERPROFILE%\miniconda3_bitnet
-        
-        if not exist "%USERPROFILE%\miniconda3_bitnet" (
-            call :log_and_show "Failed to install Miniconda" "ERROR"
-            set "PREREQ_ERROR=1"
-            exit /b 1
-        )
-        
-        call :log_and_show "Miniconda installed successfully" "SUCCESS"
-        
-        :: Add Miniconda to path for this session
-        set "PATH=%PATH%;%USERPROFILE%\miniconda3_bitnet;%USERPROFILE%\miniconda3_bitnet\Scripts"
-        call :log_and_show "Added Miniconda to PATH for this session" "INFO"
-        
-        :: Initialize conda for future sessions
-        call :log_and_show "Initializing conda for future sessions" "INFO"
-        call "%USERPROFILE%\miniconda3_bitnet\Scripts\activate.bat"
     ) else (
-        call :log_and_show "Conda is already installed" "SUCCESS"
+        call :log_and_show "Conda is already installed and in PATH" "SUCCESS"
     )
     exit /b 0
 
@@ -281,52 +362,12 @@ set "INSTALL_ERROR=0"
     exit /b 0
 
 :install_prerequisites
-    echo.
     echo ===================================================================
     echo STEP 1: Checking and Installing Prerequisites
     echo ===================================================================
     echo.
     
-    :: Check and install Git
-    echo ===================================================================
-    echo STEP 1/4: Installing Git (Version Control)
-    echo ===================================================================
-    echo This step typically takes 1-2 minutes to complete.
-    echo.
-    
-    call :check_git
-    if !errorlevel! neq 0 goto :install_prerequisites_end
-    
-    :: Check and install Conda
-    echo.
-    echo ===================================================================
-    echo STEP 2/4: Installing Miniconda (Python Environment)
-    echo ===================================================================
-    echo This step typically takes 3-5 minutes to complete.
-    echo.
-    
-    call :check_conda
-    if !errorlevel! neq 0 goto :install_prerequisites_end
-    
-    :: Check and install Visual Studio
-    echo.
-    echo ===================================================================
-    echo STEP 3/4: Installing Visual Studio 2022
-    echo ===================================================================
-    echo This step typically takes 10-15 minutes to complete.
-    echo.
-    
-    call :check_vs
-    if !errorlevel! neq 0 goto :install_prerequisites_end
-    
-    :: All prerequisites have been installed successfully
-    call :log_and_show "All prerequisites are installed" "SUCCESS"
-    
-:install_prerequisites_end
-    if "%PREREQ_ERROR%"=="1" (
-        call :log_and_show "Prerequisites installation failed" "ERROR"
-        exit /b 1
-    )
+    :: Individual prerequisite functions will be called directly from main flow
     exit /b 0
 
 :install_bitnet
@@ -400,23 +441,29 @@ set "INSTALL_ERROR=0"
     echo @echo off > "%TEMP_DIR%\setup_conda.bat"
     echo echo Setting up conda environment for BitNet... >> "%TEMP_DIR%\setup_conda.bat"
     echo set "PATH=%%PATH%%;%%USERPROFILE%%\miniconda3_bitnet;%%USERPROFILE%%\miniconda3_bitnet\Scripts" >> "%TEMP_DIR%\setup_conda.bat"
-    echo conda create -n bitnet-cpp python=3.9 -y >> "%TEMP_DIR%\setup_conda.bat"
+    
+    :: Use the proper conda command with full path to avoid initialization issues
+    echo "%%USERPROFILE%%\miniconda3_bitnet\Scripts\conda.exe" init cmd.exe >> "%TEMP_DIR%\setup_conda.bat"
+    echo "%%USERPROFILE%%\miniconda3_bitnet\Scripts\conda.exe" create -n bitnet-cpp python=3.9 -y >> "%TEMP_DIR%\setup_conda.bat"
     echo if %%errorlevel%% neq 0 ( >> "%TEMP_DIR%\setup_conda.bat"
     echo   echo ERROR: Failed to create conda environment >> "%TEMP_DIR%\setup_conda.bat"
     echo   exit /b 1 >> "%TEMP_DIR%\setup_conda.bat"
     echo ) >> "%TEMP_DIR%\setup_conda.bat"
-    echo call conda activate bitnet-cpp >> "%TEMP_DIR%\setup_conda.bat"
-    echo if %%errorlevel%% neq 0 ( >> "%TEMP_DIR%\setup_conda.bat"
-    echo   echo ERROR: Failed to activate conda environment >> "%TEMP_DIR%\setup_conda.bat"
-    echo   exit /b 2 >> "%TEMP_DIR%\setup_conda.bat"
-    echo ) >> "%TEMP_DIR%\setup_conda.bat"
+    
+    :: Check if requirements.txt exists, if not create a basic one
     echo cd /d "!INSTALL_DIR!" >> "%TEMP_DIR%\setup_conda.bat"
     echo if not exist requirements.txt ( >> "%TEMP_DIR%\setup_conda.bat"
-    echo   echo ERROR: requirements.txt not found in BitNet directory >> "%TEMP_DIR%\setup_conda.bat"
-    echo   exit /b 3 >> "%TEMP_DIR%\setup_conda.bat"
+    echo   echo Requirements.txt not found, creating a basic one with common dependencies... >> "%TEMP_DIR%\setup_conda.bat"
+    echo   echo numpy>=1.20.0 > requirements.txt >> "%TEMP_DIR%\setup_conda.bat"
+    echo   echo torch>=1.10.0 >> requirements.txt >> "%TEMP_DIR%\setup_conda.bat"
+    echo   echo tqdm>=4.62.0 >> requirements.txt >> "%TEMP_DIR%\setup_conda.bat"
+    echo   echo scipy>=1.7.0 >> requirements.txt >> "%TEMP_DIR%\setup_conda.bat"
+    echo   echo matplotlib>=3.4.0 >> requirements.txt >> "%TEMP_DIR%\setup_conda.bat"
     echo ) >> "%TEMP_DIR%\setup_conda.bat"
-    echo echo Installing requirements... >> "%TEMP_DIR%\setup_conda.bat"
-    echo pip install -r requirements.txt >> "%TEMP_DIR%\setup_conda.bat"
+    
+    :: Use the conda run command instead of activate
+    echo echo Installing requirements from requirements.txt... >> "%TEMP_DIR%\setup_conda.bat"
+    echo "%%USERPROFILE%%\miniconda3_bitnet\Scripts\conda.exe" run -n bitnet-cpp pip install -r requirements.txt >> "%TEMP_DIR%\setup_conda.bat"
     echo if %%errorlevel%% neq 0 ( >> "%TEMP_DIR%\setup_conda.bat"
     echo   echo ERROR: Failed to install Python requirements >> "%TEMP_DIR%\setup_conda.bat"
     echo   exit /b 4 >> "%TEMP_DIR%\setup_conda.bat"
@@ -440,7 +487,8 @@ set "INSTALL_ERROR=0"
     echo echo Starting BitNet... >> "%CURRENT_DIR%\start_bitnet.bat"
     echo echo. >> "%CURRENT_DIR%\start_bitnet.bat"
     echo set "PATH=%%PATH%%;%%USERPROFILE%%\miniconda3_bitnet;%%USERPROFILE%%\miniconda3_bitnet\Scripts" >> "%CURRENT_DIR%\start_bitnet.bat"
-    echo call conda activate bitnet-cpp >> "%CURRENT_DIR%\start_bitnet.bat"
+    
+    :: Use conda run instead of activate in the start script
     echo cd /d "!INSTALL_DIR!" >> "%CURRENT_DIR%\start_bitnet.bat"
     echo echo Running BitNet. If this fails, please check the README.md for proper launch instructions. >> "%CURRENT_DIR%\start_bitnet.bat"
     echo echo. >> "%CURRENT_DIR%\start_bitnet.bat"
@@ -449,13 +497,10 @@ set "INSTALL_ERROR=0"
     echo   call build.bat >> "%CURRENT_DIR%\start_bitnet.bat"
     echo ) else if exist CMakeLists.txt ( >> "%CURRENT_DIR%\start_bitnet.bat"
     echo   echo Running CMake build process... >> "%CURRENT_DIR%\start_bitnet.bat"
-    echo   mkdir build >> "%CURRENT_DIR%\start_bitnet.bat"
-    echo   cd build >> "%CURRENT_DIR%\start_bitnet.bat"
-    echo   cmake .. >> "%CURRENT_DIR%\start_bitnet.bat"
-    echo   cmake --build . --config Release >> "%CURRENT_DIR%\start_bitnet.bat"
+    echo   "%%USERPROFILE%%\miniconda3_bitnet\Scripts\conda.exe" run -n bitnet-cpp cmd /c "mkdir build 2>nul & cd build & cmake .. & cmake --build . --config Release" >> "%CURRENT_DIR%\start_bitnet.bat"
     echo ) else if exist setup.py ( >> "%CURRENT_DIR%\start_bitnet.bat"
     echo   echo Installing BitNet from setup.py... >> "%CURRENT_DIR%\start_bitnet.bat"
-    echo   pip install -e . >> "%CURRENT_DIR%\start_bitnet.bat"
+    echo   "%%USERPROFILE%%\miniconda3_bitnet\Scripts\conda.exe" run -n bitnet-cpp pip install -e . >> "%CURRENT_DIR%\start_bitnet.bat"
     echo   echo. >> "%CURRENT_DIR%\start_bitnet.bat"
     echo   echo BitNet installed. Please refer to the README.md for usage instructions. >> "%CURRENT_DIR%\start_bitnet.bat"
     echo ) else ( >> "%CURRENT_DIR%\start_bitnet.bat"
