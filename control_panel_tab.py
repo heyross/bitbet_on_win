@@ -45,6 +45,7 @@ class ControlPanelTab(ttk.Frame):
         self.current_model = tk.StringVar(value="")
         self.bitnet_status = tk.StringVar(value="Not Running")
         self.output_text = None
+        self.bitnet_process = None  # Initialize bitnet_process attribute
         
         # Initialize UI components
         self.create_ui()
