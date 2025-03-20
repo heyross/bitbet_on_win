@@ -1,0 +1,14 @@
+# BitNet Installer Requirements
+# Python packages required by the BitNet installer
+
+# Core dependencies
+tqdm>=4.64.0
+requests>=2.27.1
+psutil>=5.9.0
+
+# GUI dependencies
+pillow>=9.0.0  # For image handling
+
+# Development dependencies (optional)
+# pytest>=7.0.0
+# black>=22.1.0
